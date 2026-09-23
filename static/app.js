@@ -21,21 +21,98 @@ function proposal(p){
    const a=document.createElement('a');a.href='/cart';a.textContent='Открыть корзину →';$('conversation').append(a);
  }));b.className='confirm';el.append(document.createElement('br'),b);
 }
-function cards(products){
+const propertyLabels={
+ NOMINALNYY_TOK:'Номинальный ток',KOLICHESTVO_POLYUSOV:'Количество полюсов',
+ NOMINALNOE_NAPRYAZHENIE:'Номинальное напряжение',
+ NOMINALNAYA_OTKLYUCHAYUSHCHAYA_SPOSOBNOST:'Отключающая способность',
+ CHARACTERISTIC:'Характеристика срабатывания',KRATNOST_MIN:'Минимальная партия',
+ TORGOVAYA_MARKA:'Производитель',TIP_USTANOVKI:'Тип установки',
+ OBYEM:'Тип изделия',ARTIKULPOSTAVSHCHIKA:'Артикул производителя'
+};
+function detail(label,value){
+ const row=document.createElement('div');row.className='detail-row';
+ const term=document.createElement('dt');term.textContent=label;
+ const description=document.createElement('dd');description.textContent=String(value);
+ row.append(term,description);return row;
+}
+function productCard(p,reason=''){
+ const card=document.createElement('article');card.className='product-card';
+ const head=document.createElement('div');head.className='product-card__head';
+ const name=document.createElement('h3');name.textContent=p.name;
+ const identity=document.createElement('p');identity.className='product-card__identity';
+ identity.textContent=`Артикул: ${p.article} · ID: ${p.id}`;
+ head.append(name,identity);
+ const category=document.createElement('p');category.className='product-card__category';
+ category.textContent=`Категория: ${p.category||'не указана'}`;head.append(category);
+ card.append(head);
+
+ const body=document.createElement('div');body.className='product-card__body';
+ const availability=document.createElement('div');availability.className='product-card__availability';
+ const price=document.createElement('div');price.className='product-card__price';
+ price.textContent=p.price==null?'Цена неизвестна':`${p.price} ₸`;
+ const stock=document.createElement('div');stock.className='product-card__stock';
+ stock.textContent=p.stock==null?'Остаток неизвестен':`В наличии: ${p.stock}`;
+ availability.append(price,stock);body.append(availability);
+ if(p.description){
+  const description=document.createElement('p');description.className='product-card__description';
+  description.textContent=p.description.replace(/<[^>]*>/g,' ').replace(/\s+/g,' ').trim();
+  if(description.textContent)body.append(description);
+ }
+ const storesSection=document.createElement('section');storesSection.className='product-card__section';
+ const storesTitle=document.createElement('h4');storesTitle.textContent='По складам';
+ const storesList=document.createElement('dl');storesList.className='product-card__details';
+ for(const store of p.stores||[])storesList.append(detail(store.name||'Склад',store.quantity??'неизвестно'));
+ storesSection.append(storesTitle);
+ if(storesList.children.length)storesSection.append(storesList);
+ else{const empty=document.createElement('p');empty.textContent='Данные по складам не указаны';storesSection.append(empty);}
+ body.append(storesSection);
+ const properties=Object.entries(p.properties||{}).filter(([key,value])=>
+  value!=null&&value!==''&&!/CERT|SERT|СЕРТИФ/i.test(key));
+ if(properties.length){
+  const section=document.createElement('section');section.className='product-card__section';
+  const title=document.createElement('h4');title.textContent='Характеристики';
+  const list=document.createElement('dl');list.className='product-card__details';
+  for(const [key,value] of properties)list.append(detail(propertyLabels[key]||key.replaceAll('_',' '),value));
+  section.append(title,list);body.append(section);
+ }
+ const certificates=document.createElement('section');certificates.className='product-card__section';
+ const certTitle=document.createElement('h4');certTitle.textContent='Сертификаты';certificates.append(certTitle);
+ if(p.certificates?.length){for(const [index,link] of p.certificates.entries()){
+  const a=document.createElement('a');a.href=link;a.textContent=`Сертификат ${index+1} ↗`;
+  a.target='_blank';a.rel='noopener noreferrer';certificates.append(a);
+ }}else{const empty=document.createElement('p');empty.textContent='В данных каталога не найдены';certificates.append(empty);}
+ body.append(certificates);
+ if(reason){const note=document.createElement('p');note.className='product-card__note';note.textContent=`Почему аналог: ${reason}`;body.append(note);}
+ for(const warning of p.warnings||[]){const note=document.createElement('p');note.className='product-card__warning';note.textContent=warning;body.append(note);}
+ card.append(body);
+
+ const actions=document.createElement('div');actions.className='product-card__actions';
+ const label=document.createElement('label');label.textContent='Количество';
+ const quantity=document.createElement('input');quantity.type='number';quantity.min=p.minimum;
+ quantity.step=p.minimum;quantity.value=p.minimum;
+ quantity.max=p.stock??'';quantity.setAttribute('aria-label','Количество '+p.name);
+ label.append(quantity);
+ const add=button('В корзину',()=>action(async()=>{
+  if(!quantity.reportValidity())return;
+  proposal(await api('/api/cart/proposals',{product_id:p.id,quantity:quantity.value}));
+ }));
+ add.disabled=p.stock==null||Number(p.stock)<=0||(p.warnings||[]).length>0;
+ actions.append(label,add);card.append(actions);
+ return card;
+}
+function cards(products,analogs=[]){
  const list=document.createElement('div');list.className='cards';
- for(const p of products){const c=document.createElement('div');c.className='card';const name=document.createElement('strong');name.textContent=p.name;
- const info=document.createElement('small');info.textContent=`${p.article} · ${p.price??'Цена неизвестна'} ₸ · Остаток: ${p.stock??'неизвестен'}`;
- const n=document.createElement('input');n.type='number';n.min=p.minimum;n.step=p.minimum;n.value=p.minimum;n.setAttribute('aria-label','Количество '+p.name);
- const b=button('В корзину',()=>action(async()=>proposal(await api('/api/cart/proposals',{product_id:p.id,quantity:n.value}))));
- b.disabled=p.stock===null||Number(p.stock)<=0||(p.warnings||[]).length>0;
- c.append(name,info,n,b);
- for(const link of p.certificates||[]){const a=document.createElement('a');a.href=link;a.textContent='Сертификат ↗';a.target='_blank';a.rel='noopener noreferrer';c.append(document.createElement('br'),a);}
- list.append(c);} $('conversation').append(list);
+ for(const p of products)list.append(productCard(p));
+ for(const analog of analogs)list.append(productCard(analog.product,analog.reason));
+ $('conversation').append(list);
 }
 async function send(message){await action(async()=>{
  bubble(message,'user');$('message').value='';
  const result=await api('/api/chat',{message,attachment_text:attachmentText});attachmentText='';$('attachment').textContent='';
- if(!result.proposal)bubble(result.message);if(result.products)cards(result.products);if(result.analogs)cards(result.analogs.map(x=>x.product));if(result.proposal)proposal(result.proposal);
+ const products=result.products||[],analogs=result.analogs||[];
+ if(products.length||analogs.length)cards(products,analogs);
+ else if(!result.proposal)bubble(result.message);
+ if(result.proposal)proposal(result.proposal);
  if(result.cart){await refreshCart();const a=document.createElement('a');a.href='/cart';a.textContent='Открыть корзину →';$('conversation').append(a);}
  if(result.partial_catalog)bubble('Поиск выполнен по ограниченной выборке каталога.');
  if(result.catalog_stale)bubble('Список каталога обновляется в фоне. Цены и остатки найденных товаров проверяются отдельно.');
