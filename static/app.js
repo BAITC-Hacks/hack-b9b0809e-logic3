@@ -1,4 +1,4 @@
-let csrf = '', attachmentText = '', busy = false;
+let csrf = '', attachmentText = '', busy = false, cartConfirmation = null;
 const $ = id => document.getElementById(id);
 async function api(path, body) {
   const options = body === undefined ? {} : {method:'POST',headers:{'X-CSRF-Token':csrf}};
@@ -138,6 +138,7 @@ async function send(message){await action(async()=>{
  if(result.catalog_stale)bubble('Список каталога обновляется в фоне. Цены и остатки найденных товаров проверяются отдельно.');
  });}
 async function refreshCart(){const cart=await api('/api/cart');$('cart-count').textContent='Корзина · '+cart.items.length;$('cart-items').replaceChildren();
+ cartConfirmation=null;
  $('clear-cart').hidden=!cart.items.length;
  for(const p of cart.items){
   const item=document.createElement('div');item.className='cart-item';
@@ -145,10 +146,32 @@ async function refreshCart(){const cart=await api('/api/cart');$('cart-count').t
   const name=document.createElement('strong');name.textContent=p.name;
   const details=document.createElement('span');details.textContent=`${p.quantity} × ${p.price} ₸`;
   summary.append(name,details);
+  const controls=document.createElement('div');controls.className='cart-item__controls';
+  const minus=button('−',()=>action(async()=>{
+   await api('/api/cart/decrement',{product_id:p.product_id});await refreshCart();
+  }));minus.setAttribute('aria-label','Уменьшить количество '+p.name);
+  const count=document.createElement('span');count.className='cart-item__count';count.textContent=p.quantity;
+  const plus=button('+',()=>action(async()=>{
+   const quote=await api('/api/cart/proposals',{product_id:p.product_id,quantity:p.minimum||'1'});
+   if(cartConfirmation){cartConfirmation.element.remove();cartConfirmation.plus.disabled=false;}
+   plus.disabled=true;
+   const confirmation=document.createElement('div');confirmation.className='cart-item__confirmation';
+   confirmation.setAttribute('aria-live','polite');
+   const message=document.createElement('span');message.textContent=quote.message;
+   const yes=button('Да, добавить',()=>action(async()=>{
+    await api('/api/cart/confirm',{proposal_id:quote.id,confirmed:true});await refreshCart();
+   }));
+   const no=button('Отмена',()=>action(async()=>{
+    await api('/api/cart/cancel',{});confirmation.remove();plus.disabled=false;cartConfirmation=null;
+   }));
+   confirmation.append(message,yes,no);item.append(confirmation);
+   cartConfirmation={element:confirmation,plus};
+  }));plus.setAttribute('aria-label','Добавить ещё '+p.name);
+  controls.append(minus,count,plus);
   const remove=button('Удалить',()=>action(async()=>{
    await api('/api/cart/remove',{product_id:p.product_id});await refreshCart();
   }));remove.className='cart-item__remove';
-  item.append(summary,remove);$('cart-items').append(item);
+  controls.append(remove);item.append(summary,controls);$('cart-items').append(item);
  }
  if(!cart.items.length)$('cart-items').textContent='Корзина пока пуста.';
  $('cart-total').textContent='Итого: '+cart.total+' ₸';

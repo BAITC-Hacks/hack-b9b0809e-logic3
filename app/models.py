@@ -25,7 +25,7 @@ class ProposalRequest(BaseModel):
     quantity: Decimal = Field(gt=0, le=1000000, max_digits=12, decimal_places=3)
 
 
-class RemoveCartItemRequest(BaseModel):
+class CartItemRequest(BaseModel):
     model_config = ConfigDict(extra='forbid')
     product_id: str = Field(min_length=1, max_length=80, pattern=r'^[\w-]+$')
 
