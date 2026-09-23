@@ -9,6 +9,41 @@ from app.ekt import EktClient
 
 
 @pytest.mark.asyncio
+async def test_unusual_delivery_followup_uses_context_and_only_selected_topic():
+    settings = Settings(_env_file=None, ekt_mode='demo', openai_api_key='test-key')
+    client = EktClient(settings)
+    catalog = Catalog(settings, client)
+    agent = Agent(catalog, CartService(catalog))
+    session = Session()
+    session.history = [{'role': 'user', 'content': 'Расскажите о доставке'},
+                       {'role': 'assistant', 'content': 'Доставка. По Алматы до 48 часов после согласования.'}]
+    calls = []
+
+    def handler(request):
+        body = json.loads(request.content)
+        calls.append(body)
+        assert session.history[0] in body['messages']
+        return httpx.Response(200, json={'choices': [{'message': {
+            'role': 'assistant', 'content': 'Недостоверное обещание!',
+            'tool_calls': [{'id': 'terms', 'type': 'function', 'function': {
+                'name': 'purchase_terms', 'arguments': json.dumps({'topics': ['delivery']})}}]
+        }}]})
+
+    await agent.http.aclose()
+    agent.http = httpx.AsyncClient(transport=httpx.MockTransport(handler))
+    try:
+        result = await agent.respond('А в другой город?', '', session)
+        assert 'Для других городов' in result['message']
+        assert 'Оплата.' not in result['message']
+        assert 'Минимальная партия' not in result['message']
+        assert 'Недостоверное обещание' not in result['message']
+        assert len(calls) == 1
+    finally:
+        await client.close()
+        await agent.http.aclose()
+
+
+@pytest.mark.asyncio
 async def test_llm_can_only_propose_and_cannot_invent_facts():
     settings = Settings(_env_file=None, ekt_mode='demo', openai_api_key='test-key')
     client = EktClient(settings)
