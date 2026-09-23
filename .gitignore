@@ -4,3 +4,7 @@ __pycache__/
 .pytest_cache/
 *.pyc
 .ruff_cache/
+data/catalog-cache.json
+data/catalog-cache.pages/
+data/*.tmp
+.vscode/

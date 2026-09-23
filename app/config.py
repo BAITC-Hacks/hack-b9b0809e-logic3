@@ -9,8 +9,12 @@ class Settings(BaseSettings):
     ekt_api_base: str = 'https://ekt.kz/api'
     ekt_api_user: str = 'apiuser'
     ekt_api_password: SecretStr = SecretStr('')
-    catalog_max_pages: int = Field(5, ge=1, le=5000)
-    catalog_ttl_seconds: int = Field(900, ge=1)
+    catalog_max_pages: int = Field(5000, ge=1, le=50000)
+    catalog_ttl_seconds: int = Field(86400, ge=1)
+    catalog_cache_path: str = 'data/catalog-cache.json'
+    catalog_concurrency: int = Field(4, ge=1, le=8)
+    catalog_page_size: int = Field(100, ge=1, le=100)
+    ekt_api_timeout_seconds: int = Field(30, ge=1, le=120)
     detail_ttl_seconds: int = Field(60, ge=1)
     openai_api_key: SecretStr = SecretStr('')
     openai_model: str = 'gpt-4.1-mini'
