@@ -113,7 +113,8 @@ def test_forged_boolean_and_extra_fields(client):
 def test_terms_are_honest(client):
     r = client.post('/api/chat', json={'message': 'Условия оплаты и доставки?'})
     assert r.status_code == 200
-    assert 'партнёр пока не предоставил' in r.json()['message']
+    assert 'Физлица' in r.json()['message']
+    assert r.json()['sources'][0]['url'] == 'https://ekt.kz/about/information/'
 
 
 def test_docx_upload(client):

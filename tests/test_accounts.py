@@ -137,7 +137,7 @@ def test_accounts_and_sessions_survive_restart(account_client):
         assert restarted.get('/api/auth/me').json()['user']['email'] == 'alice@example.com'
 
 
-def test_two_users_have_separate_profiles_and_no_history_tables(account_client):
+def test_two_users_have_separate_profiles_and_history_schema(account_client):
     client, app, settings = account_client
     alice = register(client).json()['user']
     with TestClient(create_app(settings)) as bob:
@@ -149,7 +149,8 @@ def test_two_users_have_separate_profiles_and_no_history_tables(account_client):
         assert client.get('/api/auth/me').json()['user']['city'] == ''
     with app.state.accounts.connect() as db:
         tables = {row[0] for row in db.execute("SELECT name FROM sqlite_master WHERE type='table'")}
-        assert tables == {'users', 'auth_sessions', 'auth_attempts'}
+        assert tables == {'users', 'auth_sessions', 'auth_attempts', 'chat_conversations', 'chat_exchanges', 'sqlite_sequence'}
+        assert db.execute('SELECT count(*) FROM chat_exchanges').fetchone()[0] == 0
 
 
 def test_password_change_requires_current_password_and_revokes_other_devices(account_client):

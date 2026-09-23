@@ -1,11 +1,12 @@
 import asyncio
 import secrets
 import time
+import sqlite3
 from contextlib import asynccontextmanager
 from contextlib import suppress
 from pathlib import Path
 from typing import Annotated
-from fastapi import FastAPI, Depends, HTTPException, Request, Response, UploadFile
+from fastapi import FastAPI, Depends, HTTPException, Request, Response, UploadFile, Query
 from fastapi.responses import FileResponse, JSONResponse
 from fastapi.staticfiles import StaticFiles
 from fastapi.exceptions import RequestValidationError
@@ -15,10 +16,11 @@ from app.cart import CartService, CartError, Session
 from app.catalog import Catalog
 from app.config import Settings
 from app.ekt import EktClient, CatalogError
-from app.models import ChatRequest, ProposalRequest, ConfirmRequest
+from app.models import ChatRequest, ProposalRequest, ConfirmRequest, ConversationRequest
 from app.uploads import MAX_BYTES, extract_document, extract_image
 from app.accounts import AccountError, AccountStore
 from app.auth import account_router
+from app.chat_history import ChatHistory
 
 ROOT = Path(__file__).parent.parent
 
@@ -31,10 +33,12 @@ def create_app(settings: Settings | None = None) -> FastAPI:
     agent = Agent(catalog, cart)
     sessions: dict[str, Session] = {}
     accounts = AccountStore(settings.auth_db_path, settings.auth_ttl_seconds)
+    history = ChatHistory(accounts)
 
     @asynccontextmanager
     async def lifespan(app: FastAPI):
         await asyncio.to_thread(accounts.initialize)
+        await asyncio.to_thread(history.initialize)
         if settings.ekt_mode == 'live':
             await asyncio.to_thread(catalog.restore)
             if not catalog.loaded_at or catalog.stale:
@@ -52,6 +56,7 @@ def create_app(settings: Settings | None = None) -> FastAPI:
     app = FastAPI(title='HACKALEM · EKT Assistant', lifespan=lifespan)
     app.state.catalog, app.state.cart, app.state.sessions = catalog, cart, sessions
     app.state.accounts = accounts
+    app.state.chat_history = history
     app.mount('/static', StaticFiles(directory=ROOT / 'static'), name='static')
 
     @app.middleware('http')
@@ -152,11 +157,78 @@ def create_app(settings: Settings | None = None) -> FastAPI:
                 'catalog_syncing': bool(catalog.refresh_task and not catalog.refresh_task.done()),
                 'catalog_error': catalog.last_error}
 
+    async def remember(request: Request, s: Session, message: str, result: dict) -> dict:
+        if s.user_id:
+            try:
+                s.conversation_id = await asyncio.to_thread(history.append, request.cookies.get('ekt_auth', ''), message, result, s.conversation_id)
+                result['conversation_id'] = s.conversation_id
+                result['history_saved'] = True
+            except sqlite3.Error:
+                # A cart action may already have succeeded: report its result rather
+                # than inviting a retry solely because persistence failed.
+                result['history_saved'] = False
+        return result
+
+    @app.get('/api/chat/history')
+    async def chat_history(request: Request, s: S, conversation_id: str | None = None, before: int | None = Query(None, gt=0)):
+        return await asyncio.to_thread(history.page, request.cookies.get('ekt_auth', ''), conversation_id or s.conversation_id, before)
+
+    @app.get('/api/chat/conversations')
+    async def conversations(request: Request, s: S, offset: int = Query(0, ge=0), start: int | None = Query(None, ge=0), end: int | None = Query(None, ge=0)):
+        if (start is None) != (end is None) or (start is not None and end <= start):
+            raise HTTPException(422, 'Укажите корректный диапазон дат.')
+        return await asyncio.to_thread(history.conversations, request.cookies.get('ekt_auth', ''), offset, start, end)
+
+    @app.post('/api/chat/conversations/new')
+    async def new_conversation(request: Request, s: S):
+        async with s.lock:
+            conversation = await asyncio.to_thread(history.create, request.cookies.get('ekt_auth', ''))
+            s.conversation_id, s.history, s.pending = conversation['id'], [], None
+            return {'conversation': conversation, 'entries': [], 'has_more': False}
+
+    @app.post('/api/chat/conversations/select')
+    async def select_conversation(body: ConversationRequest, request: Request, s: S):
+        async with s.lock:
+            data = await asyncio.to_thread(history.page, request.cookies.get('ekt_auth', ''), body.conversation_id)
+            # Consent and model context must never cross conversation boundaries.
+            s.conversation_id, s.history, s.pending = body.conversation_id, [], None
+            return data
+
+    def check_conversation(request: Request, s: Session) -> None:
+        selected = request.headers.get('x-conversation-id')
+        if selected and selected != s.conversation_id:
+            raise HTTPException(409, 'Диалог переключён в другой вкладке. Выберите его заново.')
+
+    async def ensure_conversation(request: Request, s: Session) -> None:
+        if s.user_id and not s.conversation_id:
+            token = request.cookies.get('ekt_auth', '')
+            data = await asyncio.to_thread(history.page, token)
+            conversation = data['conversation'] or await asyncio.to_thread(history.create, token)
+            s.conversation_id = conversation['id']
+
+    @app.post('/api/chat/history/clear')
+    async def clear_history(request: Request, s: S):
+        async with s.lock:
+            check_conversation(request, s)
+            removed = s.conversation_id
+            await asyncio.to_thread(history.clear, request.cookies.get('ekt_auth', ''), removed)
+            for active in sessions.values():
+                if active.user_id == s.user_id and active.conversation_id == removed:
+                    active.conversation_id = None
+                    active.history = []
+                    active.pending = None
+        return {'message': 'История диалога удалена.'}
+
     @app.post('/api/chat')
-    async def chat(body: ChatRequest, s: S):
+    async def chat(body: ChatRequest, request: Request, s: S):
         async with s.lock:
             try:
-                return await agent.respond(body.message, body.attachment_text, s)
+                check_conversation(request, s)
+                await ensure_conversation(request, s)
+                if s.user_id:
+                    s.history = await asyncio.to_thread(history.context, request.cookies.get('ekt_auth', ''), s.conversation_id)
+                result = await agent.respond(body.message, body.attachment_text, s)
+                return await remember(request, s, body.message, result)
             except ValidationError as exc:
                 raise HTTPException(422, 'Некорректные параметры инструмента.') from exc
 
@@ -175,14 +247,23 @@ def create_app(settings: Settings | None = None) -> FastAPI:
         return cart.view(s)
 
     @app.post('/api/cart/proposals')
-    async def propose(body: ProposalRequest, s: S):
+    async def propose(body: ProposalRequest, request: Request, s: S):
         async with s.lock:
-            return await cart.propose(s, body)
+            check_conversation(request, s)
+            await ensure_conversation(request, s)
+            result = await cart.propose(s, body)
+            await remember(request, s, f'Выбран товар {body.product_id}, количество {body.quantity}.', {'message': result['message']})
+            if s.user_id:
+                result['conversation_id'] = s.conversation_id
+            return result
 
     @app.post('/api/cart/confirm')
-    async def confirm(body: ConfirmRequest, s: S):
+    async def confirm(body: ConfirmRequest, request: Request, s: S):
         async with s.lock:
-            return await cart.add_to_cart(s, body.proposal_id, confirmed=body.confirmed)
+            check_conversation(request, s)
+            repeated = body.proposal_id in s.completed
+            result = await cart.add_to_cart(s, body.proposal_id, confirmed=body.confirmed)
+            return result if repeated else await remember(request, s, 'Да, добавить выбранный товар.', result)
 
     @app.post('/api/upload')
     async def upload(file: UploadFile, s: S):

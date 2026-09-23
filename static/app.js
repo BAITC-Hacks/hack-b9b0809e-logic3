@@ -4,8 +4,10 @@ async function api(path, body) {
   const options = body === undefined ? {} : {method:'POST',headers:{'X-CSRF-Token':csrf}};
   if(body instanceof FormData) options.body=body;
   else if(body !== undefined){options.headers['Content-Type']='application/json';options.body=JSON.stringify(body);}
+  if(body!==undefined&&activeConversationId)options.headers['X-Conversation-ID']=activeConversationId;
   const r=await fetch(path,options); const data=await r.json();
   if(!r.ok) throw new Error(typeof data.detail==='string'?data.detail:'Проверьте введённые данные.');
+  if(data.conversation_id)window.dispatchEvent(new CustomEvent('conversation:saved',{detail:data.conversation_id}));
   return data;
 }
 function bubble(text, kind=''){const el=document.createElement('div');el.className='bubble '+kind;el.textContent=text;$('conversation').append(el);el.scrollIntoView({block:'end'});return el;}
@@ -14,7 +16,7 @@ function configureCatalogExample(mode){
  const example=document.querySelector('[data-query="DEMO-C16-A"]');
  if(mode==='live'&&example){example.dataset.query='автомат 16 А ИЭК';example.textContent='Автоматы 16 А ↗';}
 }
-async function action(fn){if(busy)return;busy=true;$('send').disabled=true;try{await fn();}catch(e){
+async function action(fn){if(busy)return;busy=true;$('send').disabled=true;try{if(!await appReady)throw new Error('Обновите страницу для подключения к сессии.');await fn();}catch(e){
  if(location.pathname==='/cart'){
   const error=document.createElement('div');error.className='bubble error';error.textContent=e.message;
   $('cart-panel').append(error);error.scrollIntoView({block:'end'});
@@ -131,16 +133,26 @@ function cards(products,analogs=[]){
  for(const analog of analogs)list.append(productCard(analog.product,analog.reason));
  $('conversation').append(list);
 }
-async function send(message){await action(async()=>{
- bubble(message,'user');$('message').value='';
- const result=await api('/api/chat',{message,attachment_text:attachmentText});attachmentText='';$('attachment').textContent='';
+function renderChatResult(result,restored=false){
  const products=result.products||[],analogs=result.analogs||[];
  if(products.length||analogs.length)cards(products,analogs);
  else if(!result.proposal)bubble(result.message);
- if(result.proposal)proposal(result.proposal);
- if(result.cart){await refreshCart();const a=document.createElement('a');a.href='/cart';a.textContent='Открыть корзину →';$('conversation').append(a);}
+ // Historical messages never restore a live confirmation capability.
+ if(result.proposal&&!restored)proposal(result.proposal);
+ for(const source of result.sources||[]){
+  if(source.url!=='https://ekt.kz/about/information/')continue;
+  const link=document.createElement('a');link.href=source.url;link.textContent=source.title+' ↗';
+  link.target='_blank';link.rel='noopener noreferrer';$('conversation').append(link);
+ }
  if(result.partial_catalog)bubble('Поиск выполнен по ограниченной выборке каталога.');
  if(result.catalog_stale)bubble('Список каталога обновляется в фоне. Цены и остатки найденных товаров проверяются отдельно.');
+ if(result.history_saved===false)bubble('Ответ получен, но историю сохранить не удалось.','error');
+}
+async function send(message){await action(async()=>{
+ bubble(message,'user');$('message').value='';
+ const result=await api('/api/chat',{message,attachment_text:attachmentText});attachmentText='';$('attachment').textContent='';
+ renderChatResult(result);
+ if(result.cart){await refreshCart();const a=document.createElement('a');a.href='/cart';a.textContent='Открыть корзину →';$('conversation').append(a);}
  });}
 async function refreshCart(){const cart=await api('/api/cart');$('cart-count').textContent='Корзина · '+cart.items.length;$('cart-items').replaceChildren();
  for(const p of cart.items){
@@ -158,4 +170,4 @@ $('chat-form').addEventListener('submit',e=>{e.preventDefault();if($('message').
 document.querySelectorAll('[data-query]').forEach(b=>b.addEventListener('click',()=>send(b.dataset.query)));
 $('file').addEventListener('change',()=>action(async()=>{const file=$('file').files[0];if(!file)return;if(file.size>5*1024*1024)throw new Error('Максимальный размер — 5 МБ.');const data=new FormData();data.append('file',file);$('attachment').textContent='Читаю файл…';try{const r=await api('/api/upload',data);attachmentText=r.text;$('attachment').textContent='Прикреплено: '+file.name+'. '+r.notice;}finally{$('file').value='';}}));
 setupChatNavigation(refreshCart);
-const appReady=(async()=>{try{const session=await api('/api/session');csrf=session.csrf;configureCatalogExample(session.mode);$('mode').textContent=(session.mode==='demo'?'Синтетический каталог':'Каталог ekt.kz')+' · '+(session.llm?'ИИ подключён':'Без LLM');await refreshCart();return session;}catch(e){bubble(e.message,'error');}})();
+const appReady=(async()=>{try{const session=await api('/api/session');csrf=session.csrf;configureCatalogExample(session.mode);$('mode').textContent=(session.mode==='demo'?'Синтетический каталог':'Каталог ekt.kz')+' · '+(session.llm?'ИИ подключён':'Без LLM');await refreshCart();await setupChatHistory(session.user);return session;}catch(e){bubble(e.message,'error');}})();

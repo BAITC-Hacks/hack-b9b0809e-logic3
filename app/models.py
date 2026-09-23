@@ -35,3 +35,8 @@ class ChatRequest(BaseModel):
     model_config = ConfigDict(extra='forbid')
     message: str = Field(min_length=1, max_length=6000)
     attachment_text: str = Field('', max_length=16000)
+
+
+class ConversationRequest(BaseModel):
+    model_config = ConfigDict(extra='forbid')
+    conversation_id: str = Field(min_length=32, max_length=32, pattern=r'^[a-f0-9]+$')
