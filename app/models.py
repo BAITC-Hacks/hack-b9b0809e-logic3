@@ -25,6 +25,11 @@ class ProposalRequest(BaseModel):
     quantity: Decimal = Field(gt=0, le=1000000, max_digits=12, decimal_places=3)
 
 
+class RemoveCartItemRequest(BaseModel):
+    model_config = ConfigDict(extra='forbid')
+    product_id: str = Field(min_length=1, max_length=80, pattern=r'^[\w-]+$')
+
+
 class ConfirmRequest(BaseModel):
     model_config = ConfigDict(extra='forbid')
     proposal_id: str = Field(min_length=20, max_length=100)

@@ -38,6 +38,17 @@ class CartService:
         return {'items': list(session.cart.values()), 'url': '/cart', 'demo_cart': True,
                 'total': str(sum((Decimal(x['price']) * Decimal(x['quantity']) for x in session.cart.values()), Decimal(0)))}
 
+    def remove(self, session: Session, product_id: str) -> dict:
+        session.cart.pop(product_id, None)
+        # A pending quote was calculated against the old cart state.
+        session.pending = None
+        return {'message': 'Товар удалён из корзины.', 'cart': self.view(session)}
+
+    def clear(self, session: Session) -> dict:
+        session.cart.clear()
+        session.pending = None
+        return {'message': 'Корзина очищена.', 'cart': self.view(session)}
+
     async def propose(self, session: Session, request: ProposalRequest) -> dict:
         session.pending = None
         product = await self.catalog.detail(request.product_id, fresh=True)

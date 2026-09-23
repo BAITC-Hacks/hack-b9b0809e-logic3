@@ -41,6 +41,35 @@ def test_confirmation_and_idempotency(client):
     assert client.get(cart['url']).status_code == 200
 
 
+def test_remove_and_clear_cart(client):
+    for product in ('demo-102', 'demo-104'):
+        p = proposal(client, '2', product)
+        assert client.post('/api/cart/confirm', json={'proposal_id': p['id'], 'confirmed': True}).status_code == 200
+    assert len(client.get('/api/cart').json()['items']) == 2
+
+    removed = client.post('/api/cart/remove', json={'product_id': 'demo-102'})
+    assert removed.status_code == 200
+    assert [item['product_id'] for item in removed.json()['cart']['items']] == ['demo-104']
+    assert removed.json()['cart']['total'] == '1040'
+
+    cleared = client.post('/api/cart/clear', json={})
+    assert cleared.status_code == 200
+    assert cleared.json()['cart']['items'] == []
+    assert cleared.json()['cart']['total'] == '0'
+    assert client.post('/api/cart/clear', json={}).status_code == 200
+
+
+def test_cart_mutations_require_csrf_and_cancel_pending(client):
+    p = proposal(client)
+    assert client.post('/api/cart/clear', json={}, headers={'x-csrf-token': ''}).status_code == 403
+    assert client.post('/api/cart/remove', json={'product_id': 'demo-102'},
+                       headers={'x-csrf-token': ''}).status_code == 403
+    assert client.post('/api/cart/remove', json={'product_id': 'demo-102', 'extra': True}).status_code == 422
+    assert client.post('/api/cart/clear', json={}).status_code == 200
+    assert client.post('/api/cart/confirm', json={'proposal_id': p['id'], 'confirmed': True}).status_code == 409
+    assert client.get('/api/cart').json()['items'] == []
+
+
 def test_changed_stock_and_price(client):
     p = proposal(client)
     client.app.state.catalog.products['demo-102'].stock = Decimal('1')
