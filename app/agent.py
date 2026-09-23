@@ -8,7 +8,7 @@ from app.cart import CartService, Session, CartError
 from app.catalog import Catalog
 from app.ekt import CatalogError, PROPERTY_LABELS
 from app.models import ProposalRequest, Product
-from app.purchase_terms import purchase_terms
+from app.purchase_terms import purchase_terms, requested_topics, is_purchase_question, Topic
 
 
 class SearchArgs(BaseModel):
@@ -28,6 +28,8 @@ class EmptyArgs(BaseModel):
 class TermsArgs(BaseModel):
     model_config = ConfigDict(extra='forbid')
     product_id: str | None = Field(None, min_length=1, max_length=80, pattern=r'^[\w-]+$')
+    topics: list[Topic] = Field(min_length=1, max_length=4)
+    question: str = Field('', max_length=6000)
 
 
 TOOLS = {
@@ -35,7 +37,7 @@ TOOLS = {
     'get_product_details': (IdArgs, 'Характеристики, описание и сертификаты по ID товара.'),
     'check_stock': (IdArgs, 'Проверить свежий остаток по складам и цену по ID.'),
     'find_analogs': (IdArgs, 'Подобрать доступные аналоги по критическим характеристикам.'),
-    'purchase_terms': (TermsArgs, 'Условия оплаты, доставки и минимальной партии. Для партии конкретного товара передай его product_id.'),
+    'purchase_terms': (TermsArgs, 'Отвечает только по выбранным topics: payment, delivery, minimum; other — неизвестные дополнительные условия. Понимай смысл нестандартных формулировок и уточнений с учётом диалога. Укажи только темы вопроса и исходный question. Все три основные темы нужны лишь для общего вопроса об условиях покупки. Для партии товара передай product_id. Неизвестные условия не придумывай.'),
     'prepare_cart_addition': (ProposalRequest, 'Предложить добавление конкретного количества товара. Корзину НЕ изменяет. Используй только при просьбе купить/добавить.'),
 }
 
@@ -88,7 +90,7 @@ class Agent:
             analogs = await self.catalog.analogs(parsed.product_id)
             return {'analogs': analogs, 'message': '\n\n'.join(a['product']['name'] + ': ' + a['reason'] for a in analogs) or 'Проверенных аналогов в выборке нет. Передайте запрос менеджеру.'}
         if name == 'purchase_terms':
-            return await purchase_terms(self.catalog, parsed.product_id)
+            return await purchase_terms(self.catalog, parsed.product_id, parsed.topics, parsed.question)
         proposal = await self.cart.propose(session, parsed)
         return {'message': proposal['message'], 'proposal': proposal}
 
@@ -130,11 +132,12 @@ class Agent:
 
     @staticmethod
     def is_terms(message: str) -> bool:
-        return any(word in message.casefold() for word in ('достав', 'оплат', 'платить', 'парт', 'условия покуп', 'самовывоз', 'минималь', 'кратност', 'рассроч'))
+        return is_purchase_question(message)
 
     async def terms_request(self, message: str, session: Session) -> dict:
         product_id = None
-        if any(word in message.casefold() for word in ('парт', 'минималь', 'кратност')):
+        topics = requested_topics(message) or ['payment', 'delivery', 'minimum']
+        if 'minimum' in topics:
             # Recognize explicit IDs/articles; don't mistake a delivery sum for an ID.
             tokens = re.findall(r'[\w-]+', message.casefold())
             explicit = re.search(r'\bid\s*[:=]?\s*([\w-]+)', message, re.I)
@@ -146,7 +149,7 @@ class Agent:
                            p.id.casefold() in tokens or p.article.casefold() in tokens]
                 if len(matches) == 1:
                     product_id = matches[0].id
-        return await self.execute('purchase_terms', {'product_id': product_id}, session)
+        return await self.execute('purchase_terms', {'product_id': product_id, 'topics': topics, 'question': message}, session)
 
     async def llm(self, message: str, attachment: str, session: Session) -> dict:
         """The LLM chooses tools; factual answers are rendered from validated tool output."""
@@ -170,10 +173,15 @@ class Agent:
                     break
                 messages.append(reply)
                 for call in calls[:4]:
-                    output = await self.execute(call['function']['name'], json.loads(call['function']['arguments']), session)
+                    name = call['function']['name']
+                    args = json.loads(call['function']['arguments'])
+                    if name == 'purchase_terms':
+                        # Keep the original constraints even if the model paraphrases them away.
+                        args['question'] = message
+                    output = await self.execute(name, args, session)
                     outputs.append(output)
                     messages.append({'role': 'tool', 'tool_call_id': call['id'], 'content': json.dumps(output, ensure_ascii=False)})
-                if outputs[-1].get('proposal'):
+                if outputs[-1].get('proposal') or name == 'purchase_terms':
                     break
         except (httpx.HTTPError, KeyError, ValueError) as exc:
             session.pending = None
