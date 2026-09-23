@@ -39,48 +39,6 @@ class CartService:
         return {'items': list(session.cart.values()), 'url': '/cart', 'demo_cart': True,
                 'total': str(sum((Decimal(x['price']) * Decimal(x['quantity']) for x in session.cart.values()), Decimal(0)))}
 
-    def remove(self, session: Session, product_id: str) -> dict:
-        session.cart.pop(product_id, None)
-        # A pending quote was calculated against the old cart state.
-        session.pending = None
-        return {'message': 'Товар удалён из корзины.', 'cart': self.view(session)}
-
-    def decrement(self, session: Session, product_id: str) -> dict:
-        item = session.cart.get(product_id)
-        if item is None:
-            raise CartError('Товара нет в корзине.')
-        step = Decimal(item.get('minimum', '1'))
-        remaining = Decimal(item['quantity']) - step
-        if remaining <= 0:
-            del session.cart[product_id]
-        else:
-            item['quantity'] = str(remaining)
-        # Изменение количества делает любое старое предложение неактуальным.
-        session.pending = None
-        return {'message': 'Количество уменьшено.', 'cart': self.view(session)}
-
-    def clear(self, session: Session) -> dict:
-        session.cart.clear()
-        session.pending = None
-        return {'message': 'Корзина очищена.', 'cart': self.view(session)}
-
-    async def increment(self, session: Session, product_id: str, *, confirmed: bool) -> dict:
-        # Clicking + on an existing cart line is the customer's explicit instruction.
-        # This route is never exposed to the LLM and still requires CSRF and a strict boolean.
-        if confirmed is not True:
-            raise CartError('Необходимо явное подтверждение клиента.')
-        item = session.cart.get(product_id)
-        if item is None:
-            raise CartError('Товара нет в корзине.')
-        product = await self.catalog.detail(product_id, fresh=True)
-        step = Decimal(item.get('minimum', '1'))
-        if product.price != Decimal(item['price']) or product.minimum != step:
-            raise CartError('Цена или минимальная партия изменилась. Удалите товар и добавьте его заново.')
-        self.validate(session, product, step)
-        item['quantity'] = str(Decimal(item['quantity']) + step)
-        session.pending = None
-        return {'message': 'Количество увеличено.', 'cart': self.view(session)}
-
     async def propose(self, session: Session, request: ProposalRequest) -> dict:
         session.pending = None
         product = await self.catalog.detail(request.product_id, fresh=True)
@@ -126,8 +84,7 @@ class CartService:
             raise CartError('Цена или минимальная партия изменились. Требуется новое подтверждение.')
         quantity = proposal.quantity + Decimal(session.cart.get(product.id, {}).get('quantity', '0'))
         session.cart[product.id] = {'product_id': product.id, 'article': product.article,
-                                 'name': product.name, 'quantity': str(quantity), 'price': str(product.price),
-                                 'minimum': str(product.minimum)}
+                                 'name': product.name, 'quantity': str(quantity), 'price': str(product.price)}
         result = {'message': 'Товар добавлен в демонстрационную корзину.', 'cart': self.view(session)}
         session.completed[proposal.id] = {'done': True}
         if len(session.completed) > 100:

@@ -15,7 +15,7 @@ from app.cart import CartService, CartError, Session
 from app.catalog import Catalog
 from app.config import Settings
 from app.ekt import EktClient, CatalogError
-from app.models import ChatRequest, ProposalRequest, CartItemRequest, IncrementCartItemRequest, ConfirmRequest
+from app.models import ChatRequest, ProposalRequest, ConfirmRequest
 from app.uploads import MAX_BYTES, extract_document, extract_image
 from app.accounts import AccountError, AccountStore
 from app.auth import account_router
@@ -183,26 +183,6 @@ def create_app(settings: Settings | None = None) -> FastAPI:
     async def confirm(body: ConfirmRequest, s: S):
         async with s.lock:
             return await cart.add_to_cart(s, body.proposal_id, confirmed=body.confirmed)
-
-    @app.post('/api/cart/remove')
-    async def remove_cart_item(body: CartItemRequest, s: S):
-        async with s.lock:
-            return cart.remove(s, body.product_id)
-
-    @app.post('/api/cart/decrement')
-    async def decrement_cart_item(body: CartItemRequest, s: S):
-        async with s.lock:
-            return cart.decrement(s, body.product_id)
-
-    @app.post('/api/cart/increment')
-    async def increment_cart_item(body: IncrementCartItemRequest, s: S):
-        async with s.lock:
-            return await cart.increment(s, body.product_id, confirmed=body.confirmed)
-
-    @app.post('/api/cart/clear')
-    async def clear_cart(s: S):
-        async with s.lock:
-            return cart.clear(s)
 
     @app.post('/api/upload')
     async def upload(file: UploadFile, s: S):

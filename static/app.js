@@ -143,33 +143,17 @@ async function send(message){await action(async()=>{
  if(result.catalog_stale)bubble('Список каталога обновляется в фоне. Цены и остатки найденных товаров проверяются отдельно.');
  });}
 async function refreshCart(){const cart=await api('/api/cart');$('cart-count').textContent='Корзина · '+cart.items.length;$('cart-items').replaceChildren();
- $('clear-cart').hidden=!cart.items.length;
  for(const p of cart.items){
   const item=document.createElement('div');item.className='cart-item';
   const summary=document.createElement('div');summary.className='cart-item__summary';
   const name=document.createElement('strong');name.textContent=p.name;
   const details=document.createElement('span');details.textContent=`${p.quantity} × ${p.price} ₸`;
   summary.append(name,details);
-  const controls=document.createElement('div');controls.className='cart-item__controls';
-  const minus=button('−',()=>action(async()=>{
-   await api('/api/cart/decrement',{product_id:p.product_id});await refreshCart();
-  }));minus.setAttribute('aria-label','Уменьшить количество '+p.name);
-  const count=document.createElement('span');count.className='cart-item__count';count.textContent=p.quantity;
-  const plus=button('+',()=>action(async()=>{
-   await api('/api/cart/increment',{product_id:p.product_id,confirmed:true});await refreshCart();
-  }));plus.setAttribute('aria-label','Добавить ещё '+p.name);
-  controls.append(minus,count,plus);
-  const remove=button('Удалить',()=>action(async()=>{
-   await api('/api/cart/remove',{product_id:p.product_id});await refreshCart();
-  }));remove.className='cart-item__remove';
-  controls.append(remove);item.append(summary,controls);$('cart-items').append(item);
+  item.append(summary);$('cart-items').append(item);
  }
  if(!cart.items.length)$('cart-items').textContent='Корзина пока пуста.';
  $('cart-total').textContent='Итого: '+cart.total+' ₸';
 }
-$('clear-cart').addEventListener('click',()=>action(async()=>{
- await api('/api/cart/clear',{});await refreshCart();
-}));
 $('chat-form').addEventListener('submit',e=>{e.preventDefault();if($('message').value.trim())send($('message').value.trim());});
 document.querySelectorAll('[data-query]').forEach(b=>b.addEventListener('click',()=>send(b.dataset.query)));
 $('file').addEventListener('change',()=>action(async()=>{const file=$('file').files[0];if(!file)return;if(file.size>5*1024*1024)throw new Error('Максимальный размер — 5 МБ.');const data=new FormData();data.append('file',file);$('attachment').textContent='Читаю файл…';try{const r=await api('/api/upload',data);attachmentText=r.text;$('attachment').textContent='Прикреплено: '+file.name+'. '+r.notice;}finally{$('file').value='';}}));

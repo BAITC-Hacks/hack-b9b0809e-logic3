@@ -41,84 +41,14 @@ def test_confirmation_and_idempotency(client):
     assert client.get(cart['url']).status_code == 200
 
 
-def test_remove_and_clear_cart(client):
-    for product in ('demo-102', 'demo-104'):
-        p = proposal(client, '2', product)
-        assert client.post('/api/cart/confirm', json={'proposal_id': p['id'], 'confirmed': True}).status_code == 200
-    assert len(client.get('/api/cart').json()['items']) == 2
-
-    removed = client.post('/api/cart/remove', json={'product_id': 'demo-102'})
-    assert removed.status_code == 200
-    assert [item['product_id'] for item in removed.json()['cart']['items']] == ['demo-104']
-    assert removed.json()['cart']['total'] == '1040'
-
-    cleared = client.post('/api/cart/clear', json={})
-    assert cleared.status_code == 200
-    assert cleared.json()['cart']['items'] == []
-    assert cleared.json()['cart']['total'] == '0'
-    assert client.post('/api/cart/clear', json={}).status_code == 200
-
-
-def test_cart_item_plus_and_minus(client):
-    first = proposal(client, '3')
-    client.post('/api/cart/confirm', json={'proposal_id': first['id'], 'confirmed': True})
-    body = {'product_id': 'demo-102'}
-
-    for remaining in ('2', '1'):
-        response = client.post('/api/cart/decrement', json=body)
-        assert response.status_code == 200
-        assert response.json()['cart']['items'][0]['quantity'] == remaining
-
-    assert client.get('/api/cart').json()['items'][0]['quantity'] == '1'
-    assert client.post('/api/cart/increment', json={**body, 'confirmed': False}).status_code == 409
-    assert client.post('/api/cart/increment', json={**body, 'confirmed': True}).status_code == 200
-    assert client.get('/api/cart').json()['items'][0]['quantity'] == '2'
-
-    client.post('/api/cart/decrement', json=body)
-    last = client.post('/api/cart/decrement', json=body)
-    assert last.json()['cart']['items'] == []
-    assert client.post('/api/cart/decrement', json=body).status_code == 409
-
-
-def test_cart_step_and_direct_increase(client):
-    proposal(client, '2')  # Loads the demo catalog before changing the test product.
-    client.app.state.catalog.products['demo-102'].minimum = Decimal('2')
-    first = proposal(client, '6')
-    client.post('/api/cart/confirm', json={'proposal_id': first['id'], 'confirmed': True})
-    assert client.get('/api/cart').json()['items'][0]['minimum'] == '2'
-    assert client.post('/api/cart/decrement', json={'product_id': 'demo-102'}).json()['cart']['items'][0]['quantity'] == '4'
-
-    increased = client.post('/api/cart/increment', json={'product_id': 'demo-102', 'confirmed': True})
-    assert increased.status_code == 200
-    assert increased.json()['cart']['items'][0]['quantity'] == '6'
-
-
-def test_direct_increase_checks_price_and_stock(client):
-    first = proposal(client, '11')
-    client.post('/api/cart/confirm', json={'proposal_id': first['id'], 'confirmed': True})
-    body = {'product_id': 'demo-102', 'confirmed': True}
-    assert client.post('/api/cart/increment', json=body).json()['cart']['items'][0]['quantity'] == '12'
-    assert client.post('/api/cart/increment', json=body).status_code == 409
-    client.app.state.catalog.products['demo-102'].stock = Decimal('20')
-    client.app.state.catalog.products['demo-102'].price = Decimal('3000')
-    assert client.post('/api/cart/increment', json=body).status_code == 409
-    assert client.get('/api/cart').json()['items'][0]['quantity'] == '12'
-
-
-def test_cart_mutations_require_csrf_and_cancel_pending(client):
-    p = proposal(client)
-    assert client.post('/api/cart/clear', json={}, headers={'x-csrf-token': ''}).status_code == 403
-    assert client.post('/api/cart/remove', json={'product_id': 'demo-102'},
-                       headers={'x-csrf-token': ''}).status_code == 403
-    assert client.post('/api/cart/decrement', json={'product_id': 'demo-102'},
-                       headers={'x-csrf-token': ''}).status_code == 403
-    assert client.post('/api/cart/increment', json={'product_id': 'demo-102', 'confirmed': True},
-                       headers={'x-csrf-token': ''}).status_code == 403
-    assert client.post('/api/cart/increment', json={'product_id': 'demo-102', 'confirmed': 'true'}).status_code == 422
-    assert client.post('/api/cart/remove', json={'product_id': 'demo-102', 'extra': True}).status_code == 422
-    assert client.post('/api/cart/clear', json={}).status_code == 200
-    assert client.post('/api/cart/confirm', json={'proposal_id': p['id'], 'confirmed': True}).status_code == 409
-    assert client.get('/api/cart').json()['items'] == []
+def test_cart_page_is_read_only(client):
+    p = proposal(client, '3')
+    assert client.post('/api/cart/confirm', json={'proposal_id': p['id'], 'confirmed': True}).status_code == 200
+    for route in ('remove', 'decrement', 'increment', 'clear'):
+        response = client.post('/api/cart/' + route, json={'product_id': 'demo-102', 'confirmed': True})
+        assert response.status_code == 404
+    assert client.get('/api/cart').json()['items'][0]['quantity'] == '3'
+    assert 'clear-cart' not in client.get('/cart').text
 
 
 def test_changed_stock_and_price(client):
