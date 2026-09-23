@@ -35,6 +35,28 @@ function detail(label,value){
  const description=document.createElement('dd');description.textContent=String(value);
  row.append(term,description);return row;
 }
+function quantityControl(p){
+ const control=document.createElement('div');control.className='quantity-control';
+ const quantity=document.createElement('input');quantity.type='number';quantity.min=p.minimum;
+ quantity.step=p.minimum;quantity.value=p.minimum;quantity.max=p.stock??'';
+ quantity.setAttribute('aria-label','Количество '+p.name);
+ const step=Number(p.minimum),max=Number(p.stock);
+ const minus=button('−',()=>change(-1));minus.setAttribute('aria-label','Уменьшить количество '+p.name);
+ const plus=button('+',()=>change(1));plus.setAttribute('aria-label','Увеличить количество '+p.name);
+ function update(){
+  const current=Number(quantity.value),valid=quantity.value!==''&&quantity.checkValidity();
+  minus.disabled=!valid||current<=step;
+  plus.disabled=!valid||current+step>max+0.000001;
+ }
+ function change(direction){
+  const next=Number(quantity.value)+direction*step;
+  quantity.value=String(Math.round(next*1000)/1000);
+  update();
+ }
+ quantity.addEventListener('input',update);
+ control.append(minus,quantity,plus);update();
+ return {control,quantity};
+}
 function productCard(p,reason=''){
  const card=document.createElement('article');card.className='product-card';
  const head=document.createElement('div');head.className='product-card__head';
@@ -87,17 +109,15 @@ function productCard(p,reason=''){
  card.append(body);
 
  const actions=document.createElement('div');actions.className='product-card__actions';
- const label=document.createElement('label');label.textContent='Количество';
- const quantity=document.createElement('input');quantity.type='number';quantity.min=p.minimum;
- quantity.step=p.minimum;quantity.value=p.minimum;
- quantity.max=p.stock??'';quantity.setAttribute('aria-label','Количество '+p.name);
- label.append(quantity);
+ const field=document.createElement('div');field.className='product-card__quantity';
+ const label=document.createElement('span');label.textContent='Количество';
+ const {control,quantity}=quantityControl(p);field.append(label,control);
  const add=button('В корзину',()=>action(async()=>{
   if(!quantity.reportValidity())return;
   proposal(await api('/api/cart/proposals',{product_id:p.id,quantity:quantity.value}));
  }));
  add.disabled=p.stock==null||Number(p.stock)<=0||(p.warnings||[]).length>0;
- actions.append(label,add);card.append(actions);
+ actions.append(field,add);card.append(actions);
  return card;
 }
 function cards(products,analogs=[]){
@@ -118,8 +138,24 @@ async function send(message){await action(async()=>{
  if(result.catalog_stale)bubble('Список каталога обновляется в фоне. Цены и остатки найденных товаров проверяются отдельно.');
  });}
 async function refreshCart(){const cart=await api('/api/cart');$('cart-count').textContent='Корзина · '+cart.items.length;$('cart-items').replaceChildren();
- for(const p of cart.items){const el=document.createElement('div');el.className='bubble';el.textContent=`${p.name}\n${p.quantity} × ${p.price} ₸`;$('cart-items').append(el);}
- if(!cart.items.length)$('cart-items').textContent='Корзина пока пуста.';$('cart-total').textContent='Итого: '+cart.total+' ₸';}
+ $('clear-cart').hidden=!cart.items.length;
+ for(const p of cart.items){
+  const item=document.createElement('div');item.className='cart-item';
+  const summary=document.createElement('div');summary.className='cart-item__summary';
+  const name=document.createElement('strong');name.textContent=p.name;
+  const details=document.createElement('span');details.textContent=`${p.quantity} × ${p.price} ₸`;
+  summary.append(name,details);
+  const remove=button('Удалить',()=>action(async()=>{
+   await api('/api/cart/remove',{product_id:p.product_id});await refreshCart();
+  }));remove.className='cart-item__remove';
+  item.append(summary,remove);$('cart-items').append(item);
+ }
+ if(!cart.items.length)$('cart-items').textContent='Корзина пока пуста.';
+ $('cart-total').textContent='Итого: '+cart.total+' ₸';
+}
+$('clear-cart').addEventListener('click',()=>action(async()=>{
+ await api('/api/cart/clear',{});await refreshCart();
+}));
 $('chat-form').addEventListener('submit',e=>{e.preventDefault();if($('message').value.trim())send($('message').value.trim());});
 document.querySelectorAll('[data-query]').forEach(b=>b.addEventListener('click',()=>send(b.dataset.query)));
 $('file').addEventListener('change',()=>action(async()=>{const file=$('file').files[0];if(!file)return;if(file.size>5*1024*1024)throw new Error('Максимальный размер — 5 МБ.');const data=new FormData();data.append('file',file);$('attachment').textContent='Читаю файл…';try{const r=await api('/api/upload',data);attachmentText=r.text;$('attachment').textContent='Прикреплено: '+file.name+'. '+r.notice;}finally{$('file').value='';}}));

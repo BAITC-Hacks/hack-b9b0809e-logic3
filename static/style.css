@@ -24,8 +24,19 @@
 .product-card__note{background:#edf5e3;color:#335729}
 .product-card__warning{background:#fff0e7;color:#8d422e}
 .product-card__actions{display:flex;align-items:end;gap:12px;border-top:1px solid #e8eee7;background:#f8faf6}
-.product-card__actions label{display:grid;gap:5px;color:#5c7162;font-size:12px}
-.product-card__actions input{width:105px;padding:9px 10px;border:1px solid #c8d5c6;border-radius:7px;background:#fff;color:#192c28;font:inherit}
+.product-card__quantity{display:grid;gap:5px;color:#5c7162;font-size:12px}
+.quantity-control{display:flex;align-items:stretch;border:1px solid #c8d5c6;border-radius:7px;background:#fff;overflow:hidden}
+.quantity-control input{width:56px;min-width:0;padding:9px 2px;border:0;background:#fff;color:#192c28;font:inherit;text-align:center;appearance:textfield;-moz-appearance:textfield}
+.quantity-control input::-webkit-outer-spin-button,.quantity-control input::-webkit-inner-spin-button{appearance:none;margin:0}
+.quantity-control button{flex:none;width:34px;padding:0;border:0;border-radius:0;background:#edf3e9;color:#1b513a;font-size:18px;cursor:pointer}
+.quantity-control button:disabled{cursor:not-allowed}
 .product-card__actions button{flex:1;border:0;background:#1b513a;color:white;border-radius:7px;padding:11px 16px;cursor:pointer;font:inherit}
 .product-card__actions button:disabled{cursor:not-allowed}
+.product-card__actions .quantity-control button{flex:none;width:34px;padding:0;border-radius:0;background:#edf3e9;color:#1b513a;font-size:18px}
+.cart-panel__header{display:flex;align-items:center;justify-content:space-between;gap:16px;flex-wrap:wrap}
+.cart-panel__header h2{margin:0}
+#clear-cart,.cart-item__remove{border:1px solid #c9d7c9;border-radius:7px;background:#fff;color:#315b46;padding:9px 13px;cursor:pointer;font:inherit}
+.cart-item{display:flex;justify-content:space-between;align-items:center;gap:16px;margin:14px 0;padding:16px;border:1px solid #dce5db;border-radius:12px;background:#fff}
+.cart-item__summary{display:grid;gap:4px;min-width:0;overflow-wrap:anywhere}
+.cart-item__summary span{color:#617568;font-size:13px}
 @media(max-width:800px){.cards{grid-template-columns:1fr}.product-card__head,.product-card__body,.product-card__actions{padding:16px}.product-card__actions{flex-wrap:wrap}}
