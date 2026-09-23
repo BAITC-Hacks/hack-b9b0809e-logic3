@@ -1,3 +1,4 @@
+import asyncio
 import json
 import re
 from typing import Any
@@ -24,7 +25,7 @@ class EmptyArgs(BaseModel):
 
 
 TOOLS = {
-    'search_products': (SearchArgs, 'Поиск по названию, артикулу или ID в выборке каталога.'),
+    'search_products': (SearchArgs, 'Поиск по каталогу: название, артикул, ID, бренд и параметры. Передавай название и параметры без лишних слов.'),
     'get_product_details': (IdArgs, 'Характеристики, описание и сертификаты по ID товара.'),
     'check_stock': (IdArgs, 'Проверить свежий остаток по складам и цену по ID.'),
     'find_analogs': (IdArgs, 'Подобрать доступные аналоги по критическим характеристикам.'),
@@ -65,9 +66,10 @@ class Agent:
             # Exact ID lookup works outside the configured catalog sample.
             if not products and parsed.query.strip().isdigit():
                 products = [await self.catalog.detail(parsed.query.strip())]
-            hydrated = [await self.catalog.detail(p.id) for p in products]
-            return {'message': '\n\n'.join(product_text(p) for p in hydrated) or 'В загруженной выборке товар не найден. Уточните артикул или ID.',
-                    'products': [p.model_dump(mode='json') for p in hydrated], 'partial_catalog': self.catalog.partial}
+            hydrated = await asyncio.gather(*(self.catalog.detail(p.id) for p in products))
+            return {'message': '\n\n'.join(product_text(p) for p in hydrated) or 'В загруженном каталоге товар не найден. Уточните артикул, название или параметры.',
+                    'products': [p.model_dump(mode='json') for p in hydrated], 'partial_catalog': self.catalog.partial,
+                    'catalog_stale': self.catalog.stale}
         if name in ('get_product_details', 'check_stock'):
             p = await self.catalog.detail(parsed.product_id, fresh=name == 'check_stock')
             result = {'message': product_text(p), 'products': [p.model_dump(mode='json')]}
@@ -99,6 +101,7 @@ class Agent:
         else:
             result = await self.deterministic(message, attachment, session)
         result['partial_catalog'] = self.catalog.partial
+        result['catalog_stale'] = self.catalog.stale
         session.history = (session.history + [{'role': 'user', 'content': message},
                             {'role': 'assistant', 'content': result['message'][:8000]}])[-12:]
         return result
