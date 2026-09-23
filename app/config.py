@@ -20,3 +20,5 @@ class Settings(BaseSettings):
     openai_model: str = 'gpt-4.1-mini'
     cookie_secure: bool = False
     session_ttl_seconds: int = Field(3600, ge=60)
+    auth_db_path: str = 'data/accounts.sqlite3'
+    auth_ttl_seconds: int = Field(604800, ge=60, le=2592000)

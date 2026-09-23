@@ -4,19 +4,24 @@ function setupChatNavigation(refreshCart) {
   const chat = document.getElementById('conversation');
   const cart = document.getElementById('cart-panel');
   const composer = document.getElementById('composer');
+  const profile = document.getElementById('profile-panel');
+  const panels = {chat, cart, profile};
   const error = document.createElement('p');
   error.setAttribute('role', 'alert');
   error.className = 'error';
   cart.prepend(error);
-  const scroll = {chat: 0, cart: 0};
-  let active = location.pathname === '/cart' ? 'cart' : 'chat';
+  const scroll = {chat: 0, cart: 0, profile: 0};
+  const current = () => location.pathname === '/profile' ? 'profile' : location.pathname === '/cart' ? 'cart' : 'chat';
+  let active = current();
 
   function show() {
-    active = location.pathname === '/cart' ? 'cart' : 'chat';
-    chat.hidden = composer.hidden = active === 'cart';
+    active = current();
+    chat.hidden = composer.hidden = active !== 'chat';
     cart.hidden = active !== 'cart';
+    profile.hidden = active !== 'profile';
     // Restore only after unhiding: hidden containers have no scrollable height.
-    (active === 'cart' ? cart : chat).scrollTop = scroll[active];
+    panels[active].scrollTop = scroll[active];
+    if(active === 'profile') window.dispatchEvent(new Event('profile:open'));
   }
 
   async function updateCart() {
@@ -26,7 +31,7 @@ function setupChatNavigation(refreshCart) {
   }
 
   function navigate(path, push = true) {
-    scroll[active] = (active === 'cart' ? cart : chat).scrollTop;
+    scroll[active] = panels[active].scrollTop;
     if (push && path !== location.pathname) history.pushState(null, '', path);
     show();
     // The chat is retained locally, but the basket always comes from the server.
@@ -41,7 +46,7 @@ function setupChatNavigation(refreshCart) {
         (link.target && link.target !== '_self')) return;
     const url = new URL(link.href, location.href);
     if (url.origin !== location.origin || url.search || url.hash ||
-        !['/', '/cart'].includes(url.pathname)) return;
+        !['/', '/cart', '/profile'].includes(url.pathname)) return;
     event.preventDefault();
     navigate(url.pathname);
   });
