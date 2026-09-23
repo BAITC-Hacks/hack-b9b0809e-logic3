@@ -44,6 +44,24 @@ class CartService:
         session.pending = None
         return {'message': 'Товар удалён из корзины.', 'cart': self.view(session)}
 
+    def decrement(self, session: Session, product_id: str) -> dict:
+        item = session.cart.get(product_id)
+        if item is None:
+            raise CartError('Товара нет в корзине.')
+        step = Decimal(item.get('minimum', '1'))
+        remaining = Decimal(item['quantity']) - step
+        if remaining <= 0:
+            del session.cart[product_id]
+        else:
+            item['quantity'] = str(remaining)
+        # Изменение количества делает любое старое предложение неактуальным.
+        session.pending = None
+        return {'message': 'Количество уменьшено.', 'cart': self.view(session)}
+
+    def cancel(self, session: Session) -> dict:
+        session.pending = None
+        return {'message': 'Добавление отменено.', 'cart': self.view(session)}
+
     def clear(self, session: Session) -> dict:
         session.cart.clear()
         session.pending = None
@@ -94,7 +112,8 @@ class CartService:
             raise CartError('Цена или минимальная партия изменились. Требуется новое подтверждение.')
         quantity = proposal.quantity + Decimal(session.cart.get(product.id, {}).get('quantity', '0'))
         session.cart[product.id] = {'product_id': product.id, 'article': product.article,
-                                 'name': product.name, 'quantity': str(quantity), 'price': str(product.price)}
+                                 'name': product.name, 'quantity': str(quantity), 'price': str(product.price),
+                                 'minimum': str(product.minimum)}
         result = {'message': 'Товар добавлен в демонстрационную корзину.', 'cart': self.view(session)}
         session.completed[proposal.id] = {'done': True}
         if len(session.completed) > 100:
