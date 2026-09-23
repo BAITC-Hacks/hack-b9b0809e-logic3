@@ -9,3 +9,5 @@ openpyxl>=3.1,<4
 Pillow>=11,<13
 pytest>=8,<10
 pytest-asyncio>=0.24,<2
+argon2-cffi>=25,<26
+email-validator>=2,<3

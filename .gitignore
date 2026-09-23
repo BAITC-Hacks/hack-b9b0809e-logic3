@@ -8,3 +8,4 @@ data/catalog-cache.json
 data/catalog-cache.pages/
 data/*.tmp
 .vscode/
+data/*.sqlite3*
