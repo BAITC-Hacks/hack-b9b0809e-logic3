@@ -8,6 +8,7 @@ from app.cart import CartService, Session, CartError
 from app.catalog import Catalog
 from app.ekt import CatalogError, PROPERTY_LABELS
 from app.models import ProposalRequest, Product
+from app.purchase_terms import purchase_terms
 
 
 class SearchArgs(BaseModel):
@@ -24,12 +25,17 @@ class EmptyArgs(BaseModel):
     model_config = ConfigDict(extra='forbid')
 
 
+class TermsArgs(BaseModel):
+    model_config = ConfigDict(extra='forbid')
+    product_id: str | None = Field(None, min_length=1, max_length=80, pattern=r'^[\w-]+$')
+
+
 TOOLS = {
     'search_products': (SearchArgs, 'Поиск по каталогу: название, артикул, ID, бренд и параметры. Передавай название и параметры без лишних слов.'),
     'get_product_details': (IdArgs, 'Характеристики, описание и сертификаты по ID товара.'),
     'check_stock': (IdArgs, 'Проверить свежий остаток по складам и цену по ID.'),
     'find_analogs': (IdArgs, 'Подобрать доступные аналоги по критическим характеристикам.'),
-    'purchase_terms': (EmptyArgs, 'Условия оплаты, доставки и минимальной партии.'),
+    'purchase_terms': (TermsArgs, 'Условия оплаты, доставки и минимальной партии. Для партии конкретного товара передай его product_id.'),
     'prepare_cart_addition': (ProposalRequest, 'Предложить добавление конкретного количества товара. Корзину НЕ изменяет. Используй только при просьбе купить/добавить.'),
 }
 
@@ -82,7 +88,7 @@ class Agent:
             analogs = await self.catalog.analogs(parsed.product_id)
             return {'analogs': analogs, 'message': '\n\n'.join(a['product']['name'] + ': ' + a['reason'] for a in analogs) or 'Проверенных аналогов в выборке нет. Передайте запрос менеджеру.'}
         if name == 'purchase_terms':
-            return {'message': 'Оплата и доставка: подтверждённые способы оплаты, тарифы и сроки доставки партнёр пока не предоставил. Их следует уточнить у менеджера ekt.kz. Минимальная партия и кратность берутся из KRATNOST_MIN карточки товара; при отсутствии поля прототип использует 1. Карточка товара показывает применённое значение. Корзина демонстрационная: заказ и оплата здесь не оформляются.'}
+            return await purchase_terms(self.catalog, parsed.product_id)
         proposal = await self.cart.propose(session, parsed)
         return {'message': proposal['message'], 'proposal': proposal}
 
@@ -96,7 +102,9 @@ class Agent:
         session.pending = None
         if normalized in {'нет', 'отмена', 'не добавляй'}:
             return {'message': 'Добавление отменено. Корзина не изменена.'}
-        if self.catalog.settings.openai_api_key.get_secret_value():
+        if self.is_terms(message):
+            result = await self.terms_request(message, session)
+        elif self.catalog.settings.openai_api_key.get_secret_value():
             result = await self.llm(message, attachment, session)
         else:
             result = await self.deterministic(message, attachment, session)
@@ -108,8 +116,8 @@ class Agent:
 
     async def deterministic(self, message: str, attachment: str, session: Session) -> dict:
         lower = message.casefold()
-        if any(word in lower for word in ('достав', 'оплат', 'партия', 'условия')):
-            return await self.execute('purchase_terms', {}, session)
+        if self.is_terms(message):
+            return await self.terms_request(message, session)
         match = re.fullmatch(r'\s*(?:добавь|добавить)\s+([\w-]+)\s+(\d+(?:[.,]\d+)?)\s*(?:шт|м)?\s*', lower)
         if match:
             return await self.execute('prepare_cart_addition', {'product_id': match[1], 'quantity': match[2].replace(',', '.')}, session)
@@ -119,6 +127,26 @@ class Agent:
         if len(found) == 1 or (found and any(t in lower for t in ('аналог', 'налич', 'сертифик', 'характерист'))):
             return await self.execute('find_analogs' if 'аналог' in lower else 'get_product_details', {'product_id': found[0].id}, session)
         return await self.execute('search_products', {'query': (message + ' ' + attachment[:400])[:500]}, session)
+
+    @staticmethod
+    def is_terms(message: str) -> bool:
+        return any(word in message.casefold() for word in ('достав', 'оплат', 'платить', 'парт', 'условия покуп', 'самовывоз', 'минималь', 'кратност', 'рассроч'))
+
+    async def terms_request(self, message: str, session: Session) -> dict:
+        product_id = None
+        if any(word in message.casefold() for word in ('парт', 'минималь', 'кратност')):
+            # Recognize explicit IDs/articles; don't mistake a delivery sum for an ID.
+            tokens = re.findall(r'[\w-]+', message.casefold())
+            explicit = re.search(r'\bid\s*[:=]?\s*([\w-]+)', message, re.I)
+            if explicit:
+                product_id = explicit[1]
+            elif any(re.search(r'\d|_|-', token) for token in tokens):
+                await self.catalog.load()
+                matches = [p for p in self.catalog.products.values() if
+                           p.id.casefold() in tokens or p.article.casefold() in tokens]
+                if len(matches) == 1:
+                    product_id = matches[0].id
+        return await self.execute('purchase_terms', {'product_id': product_id}, session)
 
     async def llm(self, message: str, attachment: str, session: Session) -> dict:
         """The LLM chooses tools; factual answers are rendered from validated tool output."""
@@ -154,7 +182,7 @@ class Agent:
             return {'message': 'Уточните название или артикул товара и нужное количество. Например: «Добавь demo-102 2».'}
         result: dict[str, Any] = {'message': '\n\n'.join(o['message'] for o in outputs)}
         for output in outputs:
-            for key in ('products', 'analogs', 'proposal'):
+            for key in ('products', 'analogs', 'proposal', 'sources'):
                 if key in output:
                     result[key] = output[key]
         return result
