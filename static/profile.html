@@ -1,0 +1,80 @@
+<div class="account-heading">
+  <div><div class="eyebrow">ЛИЧНЫЙ КАБИНЕТ</div><h2 id="account-title">Рады знакомству.</h2><p id="account-subtitle">Ваш аккаунт в EKT Ассистенте.</p></div>
+  <a href="/" class="account-back">← К подбору товаров</a>
+</div>
+<p id="account-notice" class="account-notice" role="status" hidden></p>
+<div id="account-loading" class="account-card">Загружаем профиль…</div>
+<div id="account-guest" class="account-guest" hidden>
+  <div class="account-welcome">
+    <span class="account-mark" aria-hidden="true">ekt<span>●</span></span>
+    <h3>Один аккаунт.<br>Всё начинается с вас.</h3>
+    <p>Представьтесь, добавьте данные компании и управляйте своим профилем в одном месте.</p>
+    <div class="account-feature"><span aria-hidden="true">01</span><div><strong>Личный профиль</strong><p>Имя и контакты всегда под рукой.</p></div></div>
+    <div class="account-feature"><span aria-hidden="true">02</span><div><strong>Для себя и для бизнеса</strong><p>Добавьте компанию, если занимаетесь закупками.</p></div></div>
+    <div class="account-feature"><span aria-hidden="true">03</span><div><strong>Контроль доступа</strong><p>Управляйте паролем и выходите из аккаунта в любой момент.</p></div></div>
+  </div>
+  <div class="account-card auth-card">
+    <div class="auth-tabs" role="tablist" aria-label="Вход или регистрация">
+      <button id="login-tab" type="button" role="tab" aria-selected="true" aria-controls="login-form">Войти</button>
+      <button id="register-tab" type="button" role="tab" aria-selected="false" aria-controls="register-form" tabindex="-1">Создать аккаунт</button>
+    </div>
+    <form id="login-form" class="account-form" role="tabpanel" aria-labelledby="login-tab">
+      <div><h3>С возвращением</h3><p class="account-muted">Войдите с email и паролем вашего аккаунта.</p></div>
+      <label>Email<input name="email" type="email" autocomplete="username" maxlength="254" placeholder="name@example.com" required></label>
+      <label>Пароль<span class="password-field"><input id="login-password" name="password" type="password" autocomplete="current-password" maxlength="128" required><button type="button" data-password="login-password" aria-label="Показать пароль" aria-pressed="false">Показать</button></span></label>
+      <p class="form-message" role="alert" hidden></p>
+      <button type="submit" class="account-primary">Войти в аккаунт <span aria-hidden="true">↗</span></button>
+      <p class="account-footnote">Подбор товаров доступен и без аккаунта. При входе текущий диалог и демонстрационная корзина сбрасываются.</p>
+    </form>
+    <form id="register-form" class="account-form" role="tabpanel" aria-labelledby="register-tab" hidden>
+      <div><h3>Давайте знакомиться</h3><p class="account-muted">Начните с имени, email и надёжного пароля.</p></div>
+      <label>Ваше имя<input name="name" autocomplete="name" minlength="2" maxlength="80" placeholder="Как к вам обращаться" required></label>
+      <label>Email<input name="email" type="email" autocomplete="username" maxlength="254" placeholder="name@example.com" required></label>
+      <label>Пароль<span class="password-field"><input id="register-password" name="password" type="password" autocomplete="new-password" minlength="12" maxlength="128" aria-describedby="password-hint" required><button type="button" data-password="register-password" aria-label="Показать пароль" aria-pressed="false">Показать</button></span><small id="password-hint">От 12 до 128 символов. Можно использовать пробелы.</small></label>
+      <label>Повторите пароль<input name="confirm_password" type="password" autocomplete="new-password" minlength="12" maxlength="128" required></label>
+      <p class="form-message" role="alert" hidden></p>
+      <button type="submit" class="account-primary">Создать аккаунт <span aria-hidden="true">↗</span></button>
+      <p class="account-footnote">При создании аккаунта текущий диалог и демонстрационная корзина сбрасываются. Контакты можно добавить позже.</p>
+    </form>
+  </div>
+</div>
+<div id="account-member" class="account-member" hidden>
+  <div class="account-summary account-card">
+    <div id="profile-avatar" class="profile-avatar" aria-hidden="true"></div>
+    <h3 id="profile-name"></h3><p id="profile-email" class="account-muted"></p>
+    <span class="account-badge">Личный аккаунт</span>
+    <dl class="account-meta"><dt>Дата регистрации</dt><dd id="profile-created"></dd><dt>Компания</dt><dd id="profile-company"></dd></dl>
+    <button id="account-logout" type="button" class="account-secondary">Выйти из аккаунта ↗</button>
+    <p class="account-footnote">Выход очистит текущий диалог и демонстрационную корзину в этом браузере.</p>
+    <p id="logout-error" class="form-message" role="alert" hidden></p>
+  </div>
+  <div class="account-details">
+    <section class="account-card">
+      <div class="account-section-heading"><span class="account-step">01</span><div><h3>Личные данные</h3><p class="account-muted">Контакты и информация для вашего профиля.</p></div></div>
+      <form id="profile-form" class="account-form">
+        <div class="account-field-grid">
+          <label>Ваше имя<input name="name" autocomplete="name" minlength="2" maxlength="80" required></label>
+          <label>Email<input name="email" type="email" autocomplete="email" readonly aria-describedby="email-hint"><small id="email-hint">Используется для входа. Изменение пока недоступно.</small></label>
+          <label>Телефон <span class="optional">необязательно</span><input name="phone" type="tel" autocomplete="tel" maxlength="30" pattern="[+0-9\s\(\)\-]*" placeholder="+7 (___) ___-__-__"></label>
+          <label>Город <span class="optional">необязательно</span><input name="city" autocomplete="address-level2" maxlength="80" placeholder="Например, Алматы"></label>
+          <label class="account-wide">Компания <span class="optional">необязательно</span><input name="company" autocomplete="organization" maxlength="120" placeholder="Название вашей компании"></label>
+        </div>
+        <p class="form-message" role="status" hidden></p>
+        <div class="account-form-actions"><button type="submit" class="account-primary">Сохранить изменения</button><span class="account-muted">Необязательные поля можно оставить пустыми.</span></div>
+      </form>
+    </section>
+    <section class="account-card">
+      <div class="account-section-heading"><span class="account-step">02</span><div><h3>Безопасность</h3><p class="account-muted">Управляйте доступом к своему аккаунту.</p></div></div>
+      <details id="password-settings"><summary>Изменить пароль <span aria-hidden="true">＋</span></summary>
+        <form id="password-form" class="account-form">
+          <label>Текущий пароль<input name="current_password" type="password" autocomplete="current-password" maxlength="128" required></label>
+          <label>Новый пароль<span class="password-field"><input id="new-password" name="new_password" type="password" autocomplete="new-password" minlength="12" maxlength="128" required><button type="button" data-password="new-password" aria-label="Показать пароль" aria-pressed="false">Показать</button></span><small>От 12 до 128 символов. Остальные сеансы завершатся, текущий диалог и демонстрационная корзина сбросятся.</small></label>
+          <label>Повторите новый пароль<input name="confirm_password" type="password" autocomplete="new-password" minlength="12" maxlength="128" required></label>
+          <p class="form-message" role="alert" hidden></p>
+          <button type="submit" class="account-primary">Обновить пароль</button>
+        </form>
+      </details>
+    </section>
+    <p class="account-privacy">Данные профиля доступны только после входа. Не указывайте платёжные данные.</p>
+  </div>
+</div>
