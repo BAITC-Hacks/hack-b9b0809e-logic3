@@ -14,7 +14,7 @@ from app.cart import CartService, CartError, Session
 from app.catalog import Catalog
 from app.config import Settings
 from app.ekt import EktClient, CatalogError
-from app.models import ChatRequest, ProposalRequest, CartItemRequest, ConfirmRequest
+from app.models import ChatRequest, ProposalRequest, CartItemRequest, IncrementCartItemRequest, ConfirmRequest
 from app.uploads import MAX_BYTES, extract_document, extract_image
 
 ROOT = Path(__file__).parent.parent
@@ -156,10 +156,10 @@ def create_app(settings: Settings | None = None) -> FastAPI:
         async with s.lock:
             return cart.decrement(s, body.product_id)
 
-    @app.post('/api/cart/cancel')
-    async def cancel_cart_proposal(s: S):
+    @app.post('/api/cart/increment')
+    async def increment_cart_item(body: IncrementCartItemRequest, s: S):
         async with s.lock:
-            return cart.cancel(s)
+            return await cart.increment(s, body.product_id, confirmed=body.confirmed)
 
     @app.post('/api/cart/clear')
     async def clear_cart(s: S):

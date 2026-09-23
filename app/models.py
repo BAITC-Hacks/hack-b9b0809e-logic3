@@ -30,6 +30,10 @@ class CartItemRequest(BaseModel):
     product_id: str = Field(min_length=1, max_length=80, pattern=r'^[\w-]+$')
 
 
+class IncrementCartItemRequest(CartItemRequest):
+    confirmed: bool = Field(strict=True)
+
+
 class ConfirmRequest(BaseModel):
     model_config = ConfigDict(extra='forbid')
     proposal_id: str = Field(min_length=20, max_length=100)
