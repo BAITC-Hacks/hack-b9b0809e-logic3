@@ -58,14 +58,27 @@ class CartService:
         session.pending = None
         return {'message': 'Количество уменьшено.', 'cart': self.view(session)}
 
-    def cancel(self, session: Session) -> dict:
-        session.pending = None
-        return {'message': 'Добавление отменено.', 'cart': self.view(session)}
-
     def clear(self, session: Session) -> dict:
         session.cart.clear()
         session.pending = None
         return {'message': 'Корзина очищена.', 'cart': self.view(session)}
+
+    async def increment(self, session: Session, product_id: str, *, confirmed: bool) -> dict:
+        # Clicking + on an existing cart line is the customer's explicit instruction.
+        # This route is never exposed to the LLM and still requires CSRF and a strict boolean.
+        if confirmed is not True:
+            raise CartError('Необходимо явное подтверждение клиента.')
+        item = session.cart.get(product_id)
+        if item is None:
+            raise CartError('Товара нет в корзине.')
+        product = await self.catalog.detail(product_id, fresh=True)
+        step = Decimal(item.get('minimum', '1'))
+        if product.price != Decimal(item['price']) or product.minimum != step:
+            raise CartError('Цена или минимальная партия изменилась. Удалите товар и добавьте его заново.')
+        self.validate(session, product, step)
+        item['quantity'] = str(Decimal(item['quantity']) + step)
+        session.pending = None
+        return {'message': 'Количество увеличено.', 'cart': self.view(session)}
 
     async def propose(self, session: Session, request: ProposalRequest) -> dict:
         session.pending = None
