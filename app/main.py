@@ -2,6 +2,7 @@ import asyncio
 import secrets
 import time
 from contextlib import asynccontextmanager
+from contextlib import suppress
 from pathlib import Path
 from typing import Annotated
 from fastapi import FastAPI, Depends, HTTPException, Request, Response, UploadFile
@@ -29,9 +30,19 @@ def create_app(settings: Settings | None = None) -> FastAPI:
 
     @asynccontextmanager
     async def lifespan(app: FastAPI):
-        yield
-        await client.close()
-        await agent.http.aclose()
+        if settings.ekt_mode == 'live':
+            await asyncio.to_thread(catalog.restore)
+            if not catalog.loaded_at or catalog.stale:
+                catalog.schedule_refresh()
+        try:
+            yield
+        finally:
+            if catalog.refresh_task:
+                catalog.refresh_task.cancel()
+                with suppress(asyncio.CancelledError):
+                    await catalog.refresh_task
+            await client.close()
+            await agent.http.aclose()
 
     app = FastAPI(title='HACKALEM · EKT Assistant', lifespan=lifespan)
     app.state.catalog, app.state.cart, app.state.sessions = catalog, cart, sessions
@@ -98,7 +109,10 @@ def create_app(settings: Settings | None = None) -> FastAPI:
     @app.get('/health')
     async def health():
         return {'status': 'ok', 'mode': settings.ekt_mode, 'catalog_loaded': bool(catalog.loaded_at),
-                'loaded_products': len(catalog.products), 'partial_catalog': catalog.partial}
+                'loaded_products': len(catalog.products), 'partial_catalog': catalog.partial,
+                'catalog_stale': catalog.stale, 'catalog_pages': catalog.pages_loaded,
+                'catalog_syncing': bool(catalog.refresh_task and not catalog.refresh_task.done()),
+                'catalog_error': catalog.last_error}
 
     @app.post('/api/chat')
     async def chat(body: ChatRequest, s: S):

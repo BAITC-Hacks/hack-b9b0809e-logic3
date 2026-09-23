@@ -10,6 +10,10 @@ async function api(path, body) {
 }
 function bubble(text, kind=''){const el=document.createElement('div');el.className='bubble '+kind;el.textContent=text;$('conversation').append(el);el.scrollIntoView({block:'end'});return el;}
 function button(label, action){const b=document.createElement('button');b.textContent=label;b.addEventListener('click',action);return b;}
+function configureCatalogExample(mode){
+ const example=document.querySelector('[data-query="DEMO-C16-A"]');
+ if(mode==='live'&&example){example.dataset.query='автомат 16 А ИЭК';example.textContent='Автоматы 16 А ↗';}
+}
 async function action(fn){if(busy)return;busy=true;$('send').disabled=true;try{await fn();}catch(e){bubble(e.message,'error');}finally{busy=false;$('send').disabled=false;}}
 function proposal(p){
  const el=bubble(p.message);const b=button('Да, добавить '+p.quantity,()=>action(async()=>{
@@ -34,6 +38,7 @@ async function send(message){await action(async()=>{
  if(!result.proposal)bubble(result.message);if(result.products)cards(result.products);if(result.analogs)cards(result.analogs.map(x=>x.product));if(result.proposal)proposal(result.proposal);
  if(result.cart){await refreshCart();const a=document.createElement('a');a.href='/cart';a.textContent='Открыть корзину →';$('conversation').append(a);}
  if(result.partial_catalog)bubble('Поиск выполнен по ограниченной выборке каталога.');
+ if(result.catalog_stale)bubble('Список каталога обновляется в фоне. Цены и остатки найденных товаров проверяются отдельно.');
  });}
 async function refreshCart(){const cart=await api('/api/cart');$('cart-count').textContent='Корзина · '+cart.items.length;$('cart-items').replaceChildren();
  for(const p of cart.items){const el=document.createElement('div');el.className='bubble';el.textContent=`${p.name}\n${p.quantity} × ${p.price} ₸`;$('cart-items').append(el);}
@@ -41,4 +46,4 @@ async function refreshCart(){const cart=await api('/api/cart');$('cart-count').t
 $('chat-form').addEventListener('submit',e=>{e.preventDefault();if($('message').value.trim())send($('message').value.trim());});
 document.querySelectorAll('[data-query]').forEach(b=>b.addEventListener('click',()=>send(b.dataset.query)));
 $('file').addEventListener('change',()=>action(async()=>{const file=$('file').files[0];if(!file)return;if(file.size>5*1024*1024)throw new Error('Максимальный размер — 5 МБ.');const data=new FormData();data.append('file',file);$('attachment').textContent='Читаю файл…';try{const r=await api('/api/upload',data);attachmentText=r.text;$('attachment').textContent='Прикреплено: '+file.name+'. '+r.notice;}finally{$('file').value='';}}));
-(async()=>{try{const session=await api('/api/session');csrf=session.csrf;$('mode').textContent=(session.mode==='demo'?'Синтетический каталог':'Каталог ekt.kz')+' · '+(session.llm?'ИИ подключён':'Без LLM');await refreshCart();if(location.pathname==='/cart'){$('cart-panel').hidden=false;$('conversation').hidden=true;$('composer').hidden=true;}}catch(e){bubble(e.message,'error');}})();
+(async()=>{try{const session=await api('/api/session');csrf=session.csrf;configureCatalogExample(session.mode);$('mode').textContent=(session.mode==='demo'?'Синтетический каталог':'Каталог ekt.kz')+' · '+(session.llm?'ИИ подключён':'Без LLM');await refreshCart();if(location.pathname==='/cart'){$('cart-panel').hidden=false;$('conversation').hidden=true;$('composer').hidden=true;}}catch(e){bubble(e.message,'error');}})();

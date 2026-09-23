@@ -28,7 +28,7 @@ async def test_auth_pagination_cache_fresh_stock():
             return httpx.Response(200, json={'id': 1, 'name': 'Item', 'quantity': 3})
         page = request.url.params['page']
         return httpx.Response(200, json={'items': [{'id': 1, 'name': 'Item'}] if page == '1' else [], 'per_page': 1})
-    s = Settings(_env_file=None, ekt_mode='live')
+    s = Settings(_env_file=None, ekt_mode='live', catalog_concurrency=1)
     client = EktClient(s, httpx.MockTransport(handler))
     catalog = Catalog(s, client)
     try:

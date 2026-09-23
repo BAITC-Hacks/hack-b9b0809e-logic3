@@ -78,10 +78,11 @@ class EktClient:
     """Only fixed API routes: untrusted product URLs never receive credentials."""
     def __init__(self, settings: Settings, transport: httpx.AsyncBaseTransport | None = None):
         self.settings = settings
+        self.limit = asyncio.Semaphore(settings.catalog_concurrency)
         self.http = httpx.AsyncClient(
             base_url=settings.ekt_api_base.rstrip('/') + '/',
             auth=httpx.BasicAuth(settings.ekt_api_user, settings.ekt_api_password.get_secret_value()),
-            timeout=httpx.Timeout(10, connect=5), transport=transport, follow_redirects=False,
+            timeout=httpx.Timeout(settings.ekt_api_timeout_seconds, connect=5), transport=transport, follow_redirects=False,
         )
 
     async def close(self) -> None:
@@ -90,14 +91,15 @@ class EktClient:
     async def get(self, route: str, params: dict[str, Any]) -> Any:
         for attempt in range(3):
             try:
-                response = await self.http.get(route, params=params)
+                async with self.limit:
+                    response = await self.http.get(route, params=params)
                 if response.status_code == 404:
                     raise CatalogError('Товар не найден в API.')
                 if response.status_code in (401, 403):
                     raise CatalogError('API отклонил авторизацию. Проверьте настройки сервера.')
                 response.raise_for_status()
                 return response.json()
-            except (httpx.TimeoutException, httpx.NetworkError) as exc:
+            except httpx.RequestError as exc:
                 if attempt == 2:
                     raise CatalogError('API каталога временно недоступен. Попробуйте позже.') from exc
             except httpx.HTTPStatusError as exc:
@@ -110,7 +112,7 @@ class EktClient:
             await asyncio.sleep(0.2 * (2 ** attempt))
 
     async def page(self, page: int) -> dict[str, Any]:
-        data = await self.get('products', {'page': page})
+        data = await self.get('products', {'page': page, 'per_page': self.settings.catalog_page_size})
         if not isinstance(data, dict) or not isinstance(data.get('items'), list):
             raise CatalogError('Неизвестный формат списка товаров.')
         return data
