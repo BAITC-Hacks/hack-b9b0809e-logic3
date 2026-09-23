@@ -8,6 +8,7 @@ from typing import Annotated
 from fastapi import FastAPI, Depends, HTTPException, Request, Response, UploadFile
 from fastapi.responses import FileResponse, JSONResponse
 from fastapi.staticfiles import StaticFiles
+from fastapi.exceptions import RequestValidationError
 from pydantic import ValidationError
 from app.agent import Agent
 from app.cart import CartService, CartError, Session
@@ -16,6 +17,8 @@ from app.config import Settings
 from app.ekt import EktClient, CatalogError
 from app.models import ChatRequest, ProposalRequest, CartItemRequest, IncrementCartItemRequest, ConfirmRequest
 from app.uploads import MAX_BYTES, extract_document, extract_image
+from app.accounts import AccountError, AccountStore
+from app.auth import account_router
 
 ROOT = Path(__file__).parent.parent
 
@@ -27,9 +30,11 @@ def create_app(settings: Settings | None = None) -> FastAPI:
     cart = CartService(catalog)
     agent = Agent(catalog, cart)
     sessions: dict[str, Session] = {}
+    accounts = AccountStore(settings.auth_db_path, settings.auth_ttl_seconds)
 
     @asynccontextmanager
     async def lifespan(app: FastAPI):
+        await asyncio.to_thread(accounts.initialize)
         if settings.ekt_mode == 'live':
             await asyncio.to_thread(catalog.restore)
             if not catalog.loaded_at or catalog.stale:
@@ -46,6 +51,7 @@ def create_app(settings: Settings | None = None) -> FastAPI:
 
     app = FastAPI(title='HACKALEM · EKT Assistant', lifespan=lifespan)
     app.state.catalog, app.state.cart, app.state.sessions = catalog, cart, sessions
+    app.state.accounts = accounts
     app.mount('/static', StaticFiles(directory=ROOT / 'static'), name='static')
 
     @app.middleware('http')
@@ -75,12 +81,28 @@ def create_app(settings: Settings | None = None) -> FastAPI:
     async def cart_error(request: Request, exc: CartError):
         return JSONResponse({'detail': str(exc)}, status_code=409)
 
+    @app.exception_handler(AccountError)
+    async def account_error(request: Request, exc: AccountError):
+        return JSONResponse({'detail': exc.message}, status_code=exc.status,
+                            headers={'Retry-After': '900'} if exc.status == 429 else None)
+
+    @app.exception_handler(RequestValidationError)
+    async def validation_error(request: Request, exc: RequestValidationError):
+        # Pydantic's default input/context may include a submitted plaintext password.
+        return JSONResponse({'detail': 'Проверьте введённые данные.', 'errors': [
+            {'field': str(e['loc'][-1]), 'message': e['msg']} for e in exc.errors()
+        ]}, status_code=422)
+
     def session(request: Request) -> Session:
         sid = request.cookies.get('ekt_session', '')
         s = sessions.get(sid)
         if s is None or time.monotonic() - s.touched > settings.session_ttl_seconds:
             sessions.pop(sid, None)
             raise HTTPException(401, 'Сессия истекла. Обновите страницу.')
+        user = accounts.current(request.cookies.get('ekt_auth', ''))
+        if s.user_id != (user['id'] if user else None):
+            sessions.pop(sid, None)
+            raise HTTPException(401, 'Аккаунт изменился или сеанс завершён. Обновите страницу.')
         if request.method == 'POST' and not secrets.compare_digest(request.headers.get('x-csrf-token', ''), s.csrf):
             raise HTTPException(403, 'Неверный CSRF-токен.')
         s.touched = time.monotonic()
@@ -88,22 +110,38 @@ def create_app(settings: Settings | None = None) -> FastAPI:
 
     S = Annotated[Session, Depends(session)]
 
+    def rotate_session(request: Request, response: Response, user_id: str | None) -> str:
+        # Account boundaries discard guest/previous account chat and cart context.
+        # Old CSRF/session tokens must not remain usable after login or logout.
+        sessions.pop(request.cookies.get('ekt_session', ''), None)
+        sid = secrets.token_urlsafe(32)
+        sessions[sid] = Session(user_id=user_id)
+        response.set_cookie('ekt_session', sid, httponly=True, secure=settings.cookie_secure,
+                            samesite='strict', max_age=settings.session_ttl_seconds)
+        return sessions[sid].csrf
+
+    app.include_router(account_router(accounts, settings, session, rotate_session))
+
     @app.get('/api/session')
     async def start(request: Request, response: Response):
+        user = await asyncio.to_thread(accounts.current, request.cookies.get('ekt_auth', ''))
+        user_id = user['id'] if user else None
         now = time.monotonic()
         for key in list(sessions):
             if now - sessions[key].touched > settings.session_ttl_seconds:
                 del sessions[key]
         sid = request.cookies.get('ekt_session', '')
+        if sid in sessions and sessions[sid].user_id != user_id:
+            del sessions[sid]
         if sid not in sessions:
             if len(sessions) >= 1000:
                 raise HTTPException(503, 'Достигнут лимит демонстрационных сессий.')
             sid = secrets.token_urlsafe(32)
-            sessions[sid] = Session()
+            sessions[sid] = Session(user_id=user_id)
         sessions[sid].touched = now
         response.set_cookie('ekt_session', sid, httponly=True, secure=settings.cookie_secure,
                             samesite='strict', max_age=settings.session_ttl_seconds)
-        return {'csrf': sessions[sid].csrf, 'mode': settings.ekt_mode,
+        return {'csrf': sessions[sid].csrf, 'mode': settings.ekt_mode, 'user': user,
                 'llm': bool(settings.openai_api_key.get_secret_value()), 'cart': cart.view(sessions[sid])}
 
     @app.get('/health')
@@ -185,6 +223,7 @@ def create_app(settings: Settings | None = None) -> FastAPI:
 
     @app.get('/')
     @app.get('/cart')
+    @app.get('/profile')
     async def index():
         return FileResponse(ROOT / 'static/index.html')
 
