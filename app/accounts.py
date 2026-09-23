@@ -1,4 +1,4 @@
-"""Persistent accounts. No chat messages, cart contents or raw tokens are stored."""
+"""Persistent accounts. Chat history is managed separately by chat_history.py."""
 import hashlib
 import secrets
 import sqlite3

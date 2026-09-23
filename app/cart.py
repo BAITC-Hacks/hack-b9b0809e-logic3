@@ -22,6 +22,7 @@ class Proposal:
 @dataclass
 class Session:
     user_id: str | None = None
+    conversation_id: str | None = None
     csrf: str = field(default_factory=lambda: secrets.token_urlsafe(32))
     touched: float = field(default_factory=time.monotonic)
     lock: asyncio.Lock = field(default_factory=asyncio.Lock)
